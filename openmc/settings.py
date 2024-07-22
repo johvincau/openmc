@@ -459,7 +459,8 @@ class Settings:
         return self._particles
 
     @particles.setter
-    def particles(self, particles: int):
+    def particles(self, particles: Real):
+        particles = round(particles)
         cv.check_type('particles', particles, Integral)
         cv.check_greater_than('particles', particles, 0)
         self._particles = particles
