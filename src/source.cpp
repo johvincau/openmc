@@ -592,64 +592,67 @@ void initialize_source()
   for (auto& s : model::external_sources)
     total_strength += s->strength();
 
-  // Generate probability and alias tables for Vose's Alias Method
-  
-
   std::vector<int> small {};
-  std::vector<int> large {};
+    std::vector<int> large {};
 
-  // sort prob_table indices as either underfull or overfull
-  int source_index {0};
-  for (auto& s: model::external_sources){
-    double scaled_probability = (s->strength() * model::external_sources.size() / total_strength);
-    prob_table.push_back(scaled_probability);
+    // sort prob_table indices as either underfull or overfull
+    int source_index {0};
+    for (auto& s: model::external_sources){
+      double scaled_probability = (s->strength() * model::external_sources.size() / total_strength);
+      prob_table.push_back(scaled_probability);
+      
+      if (scaled_probability < 1.0){
+        small.push_back(source_index);
+        // underfull index: can accept excess mass
+      }
+      else {
+        large.push_back(source_index);
+        // overfull: must offload excess to an underfull prob_table index
+      }
+      ++source_index;
+    }
+
+    int small_index {0};
+    int large_index {0};
+    double p_g {0.0};
+    // while there is an underfull index and overfull index:
+    while ((small.size() != 0) && (large.size() != 0)){
+      small_index = small[small.size()-1];
+      small.pop_back();
+
+      large_index = large[large.size()-1];
+      large.pop_back();
+
+      // prob_table[small_index] = prob_table[small_index];
+
+      // map the small index to the large index
+      alias_table[small_index] = large_index;
+
+      // prob_table[large_index] = prob_table[small_index] + prob_table[large_index] - 1.0;
+      p_g = prob_table[small_index] + prob_table[large_index] - 1.0;
+      if (p_g < 1){
+        small.push_back(large_index);
+      }
+      else {
+        large.push_back(large_index);
+      }
+    }
+
+    // when only either large or small indices remain:
+    while (large.size() != 0){
+      large_index = large[large.size()-1];
+      large.pop_back();
+      prob_table[large_index] = 1.0;
+    }
+    while (small.size() != 0){
+      small_index = small[small.size()-1];
+      small.pop_back();
+      prob_table[small_index] = 1.0;
+    }
     
-    if (scaled_probability < 1.0){
-      small.push_back(source_index);
-      // underfull index: can accept excess mass
+      // sample external source distribution
+      simulation::source_bank[i] = sample_external_source(&seed);
     }
-    else {
-      large.push_back(source_index);
-      // overfull: must offload excess to an underfull prob_table index
-    }
-    ++source_index;
-  }
-
-  int small_index {0};
-  int large_index {0};
-  // while there is an underfull index and overfull index:
-  while ((small.size() != 0) && (large.size() != 0)){
-    small_index = small[small.size()-1];
-    small.pop_back();
-
-    large_index = large[large.size()-1];
-    large.pop_back();
-
-    // prob_table[small_index] = prob_table[small_index];
-
-    // map the small index to the large index
-    alias_table[small_index] = large_index;
-
-    prob_table[large_index] = prob_table[small_index] + prob_table[large_index] - 1.0;
-    if (prob_table[large_index] < 1){
-      small.push_back(large_index);
-    }
-    else {
-      large.push_back(large_index);
-    }
-  }
-
-  // when only either large or small indices remain:
-  while (large.size() != 0){
-    large_index = large[large.size()-1];
-    large.pop_back();
-    prob_table[large_index] = 1.0;
-  }
-  while (small.size() != 0){
-    small_index = small[small.size()-1];
-    small.pop_back();
-    prob_table[small_index] = 1.0;
-  }
 
   // Generation source sites from specified distribution in user input
   #pragma omp parallel for
@@ -658,10 +661,6 @@ void initialize_source()
       int64_t id = simulation::total_gen * settings::n_particles +
                   simulation::work_index[mpi::rank] + i + 1;
       uint64_t seed = init_seed(id, STREAM_SOURCE);
-
-      // sample external source distribution
-      simulation::source_bank[i] = sample_external_source(&seed);
-    }
 
     // Write out initial source
     if (settings::write_initial_source) {
@@ -676,11 +675,11 @@ void initialize_source()
 SourceSite sample_external_source(uint64_t* seed)
 {
   // Sample from among multiple source distributions
-  int i = 0;
+  int i {0};
   if (model::external_sources.size() > 1) {
     i = floor(prn(seed) * model::external_sources.size()); // fair die roll, pick a source i
     double checker = prn(seed); 
-    if (checker > prob_table[i]) { 
+    if (checker < prob_table[i]) { 
       i = alias_table[i]; // biased coin flip; select alias of i 
     } 
   }
