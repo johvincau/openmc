@@ -46,8 +46,8 @@ namespace model {
 vector<unique_ptr<Source>> external_sources;
 }
 
-std::vector<double> prob_table {};
-std::vector<int> alias_table {};
+std::vector<double> prob_table;
+std::vector<int> alias_table;
 
 //==============================================================================
 // Source implementation
@@ -681,7 +681,7 @@ SourceSite sample_external_source(uint64_t* seed)
     i = floor(prn(seed) * model::external_sources.size()); // fair die roll, pick a source i
     double checker = prn(seed); 
     if (checker > prob_table[i]) { 
-      i = alias_table[i]; // biased coin flip; select alias of i if 
+      i = alias_table[i]; // biased coin flip; select alias of i 
     } 
   }
 
@@ -701,6 +701,8 @@ SourceSite sample_external_source(uint64_t* seed)
 void free_memory_source()
 {
   model::external_sources.clear();
+  prob_table.clear();
+  alias_table.clear();
 }
 
 //==============================================================================
