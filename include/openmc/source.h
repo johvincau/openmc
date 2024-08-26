@@ -35,6 +35,7 @@ class Source;
 namespace model {
 
 extern vector<unique_ptr<Source>> external_sources;
+extern DiscreteIndex .... // here d
 
 } // namespace model
 

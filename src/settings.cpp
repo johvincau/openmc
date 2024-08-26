@@ -554,6 +554,8 @@ void read_settings_xml(pugi::xml_node root)
       UPtrAngle {new Isotropic()}, UPtrDist {new Watt(0.988e6, 2.249e-6)},
       UPtrDist {new Discrete(T, p, 1)}));
   }
+  // initialie the alias tables here now please
+  
 
   // Check if we want to write out source
   if (check_for_node(root, "write_initial_source")) {

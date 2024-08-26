@@ -47,7 +47,7 @@ vector<unique_ptr<Source>> external_sources;
 }
 
 std::vector<double> prob_table;
-std::vector<int> alias_table;
+std::vector<size_t> alias_table;
 
 //==============================================================================
 // Source implementation
@@ -583,40 +583,45 @@ SourceSite MeshSource::sample(uint64_t* seed) const
 // Non-member functions
 //==============================================================================
 
-void initialize_source()
+void generate_sampling_tables()
 {
-  write_message("Initializing source particles...", 5);
-
-  // Determine total source strength
-  double total_strength = 0.0;
-  for (auto& s : model::external_sources)
-    total_strength += s->strength();
-
-  std::vector<int> small {};
+  if (prob_table.size() != model::external_sources){
+    write_message("Generating sampling tables...", 5);
+    double total_strength = 0.0;
+    for (auto& s : model::external_sources){
+      total_strength += s->strength();
+    }
+    std::vector<int> small {};
     std::vector<int> large {};
 
     // sort prob_table indices as either underfull or overfull
     int source_index {0};
     for (auto& s: model::external_sources){
-      double scaled_probability = (s->strength() * model::external_sources.size() / total_strength);
-      prob_table.push_back(scaled_probability);
-      
-      if (scaled_probability < 1.0){
+      double scaled_strength = (s->strength() * model::external_sources.size() / total_strength);
+      prob_table.push_back(scaled_strength);
+      alias_table.push_back(source_index);
+
+      if (scaled_strength < 1.0){
         small.push_back(source_index);
         // underfull index: can accept excess mass
+        write_message("source_index {} is underfull with scaled strength {}", source_index, scaled_strength, 5);
       }
       else {
         large.push_back(source_index);
         // overfull: must offload excess to an underfull prob_table index
+        write_message("source_index {} is overfull with scaled strength {}", source_index, scaled_strength, 5);
       }
       ++source_index;
     }
+    write_message("Finished sorting scaled-strengths of sources", 5);
 
     int small_index {0};
     int large_index {0};
     double p_g {0.0};
     // while there is an underfull index and overfull index:
+    size_t test_counter {0};
     while ((small.size() != 0) && (large.size() != 0)){
+      write_message("under/overfull pair selected: {}", test_counter, 5);
       small_index = small[small.size()-1];
       small.pop_back();
 
@@ -624,19 +629,26 @@ void initialize_source()
       large.pop_back();
 
       // prob_table[small_index] = prob_table[small_index];
+      // write_message("small_index: {}", small_index, 5);
+      // write_message("large_index: {}", large_index, 5);
 
+      // write_message("attempting to map small to large", 5);
       // map the small index to the large index
-      alias_table[small_index] = large_index;
+      alias_table.at(small_index) = large_index;
 
       // prob_table[large_index] = prob_table[small_index] + prob_table[large_index] - 1.0;
       p_g = prob_table[small_index] + prob_table[large_index] - 1.0;
+      write_message("p_g value: {}", p_g, 5);
+
       if (p_g < 1){
         small.push_back(large_index);
       }
       else {
         large.push_back(large_index);
       }
+      test_counter++;
     }
+    write_message("Finished under/overfull pairs...", 5);
 
     // when only either large or small indices remain:
     while (large.size() != 0){
@@ -649,10 +661,15 @@ void initialize_source()
       small.pop_back();
       prob_table[small_index] = 1.0;
     }
-    
-      // sample external source distribution
-      simulation::source_bank[i] = sample_external_source(&seed);
-    }
+    write_message("generate_sampling_tables completed!", 5);
+  }
+  else
+    write_message("Sampling tables already made.", 5);
+}
+
+void initialize_source()
+{
+  write_message("Initializing source particles...", 5);
 
   // Generation source sites from specified distribution in user input
   #pragma omp parallel for
@@ -662,11 +679,15 @@ void initialize_source()
                   simulation::work_index[mpi::rank] + i + 1;
       uint64_t seed = init_seed(id, STREAM_SOURCE);
 
+    // sample external source distribution
+    simulation::source_bank[i] = sample_external_source(&seed);
+    }
+
     // Write out initial source
     if (settings::write_initial_source) {
       write_message("Writing out initial source...", 5);
       std::string filename = settings::path_output + "initial_source.h5";
-      hid_t file_id = file_open(filename, 'w', true);
+      hid_t file_id = file_open(filename, 'w', truedad);
       write_source_bank(file_id, simulation::source_bank, simulation::work_index);
       file_close(file_id);
     }
@@ -674,16 +695,28 @@ void initialize_source()
 
 SourceSite sample_external_source(uint64_t* seed)
 {
+  write_message("Sampling external source...", 5);
   // Sample from among multiple source distributions
-  int i {0};
-  if (model::external_sources.size() > 1) {
-    i = floor(prn(seed) * model::external_sources.size()); // fair die roll, pick a source i
-    double checker = prn(seed); 
-    if (checker < prob_table[i]) { 
-      i = alias_table[i]; // biased coin flip; select alias of i 
-    } 
-  }
 
+  generate_sampling_tables();
+
+  size_t i {0};
+  size_t j {0};
+  if (model::external_sources.size() > 1) {
+    j = std::floor(prn(seed) * model::external_sources.size()); // fair die roll, pick a source i
+    double checker = prn(seed); 
+    write_message("prob_table[i]: {}",prob_table[i], 5);
+    write_message("checker: {}", checker, 5);
+    if (checker < prob_table[i]) { 
+      i = alias_table[j]; // biased coin flip
+      write_message("sample: before {}, now {}", j, i, 5);
+    } 
+    else {
+      write_message("coin flip success: returning index {}", j, 5);
+      i = j;
+    }
+  }
+  
   // Sample source site from i-th source distribution
   SourceSite site {model::external_sources[i]->sample_with_constraints(seed)};
 
